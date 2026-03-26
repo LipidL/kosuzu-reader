@@ -1,116 +1,332 @@
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.typescript:hover {
-  filter: drop-shadow(0 0 2em #2d79c7);
-}
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
   margin: 0;
-  padding-top: 10vh;
+  padding: 0;
+}
+
+:root {
+  --bg: #f0f2f5;
+  --surface: #ffffff;
+  --surface-hover: #f7f8fa;
+  --accent: #4a6fa5;
+  --accent-hover: #3b5f93;
+  --danger: #d94f4f;
+  --danger-hover: #c04040;
+  --text: #1a1a1a;
+  --text-muted: #666;
+  --text-faint: #aaa;
+  --border: rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .08);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, .12);
+  --radius: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  text-align: center;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.app-header {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.5rem;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-shrink: 0;
+}
+
+.app-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 1.1rem;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  transition: background 0.15s, transform 0.1s;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: #e4e7ed;
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  background: #d8dce5;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: var(--danger-hover);
+}
+
+/* ── Main ─────────────────────────────────────────────────────────────────── */
+#main-content {
+  flex: 1;
+  padding: 1.5rem;
+}
+
+/* ── Empty state ──────────────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  padding: 6rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  gap: 0.5rem;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+.empty-icon {
+  font-size: 4rem;
+  line-height: 1;
 }
 
-a:hover {
-  color: #535bf2;
+.empty-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
-h1 {
+.empty-sub {
+  font-size: 0.9rem;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ── Book grid ────────────────────────────────────────────────────────────── */
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 1.1rem;
+}
+
+/* ── Book card ────────────────────────────────────────────────────────────── */
+.book-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  border: 1px solid var(--border);
+}
+
+.book-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.book-cover {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.book-initials {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.88);
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .2);
+  user-select: none;
+}
+
+.book-info {
+  padding: 0.7rem 0.8rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.book-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.book-author {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.book-date {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  margin-top: 0.2rem;
+}
+
+.book-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  margin-top: 0.25rem;
+}
+
+.tag {
+  background: #e9eef7;
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+}
+
+/* ── Remove button ────────────────────────────────────────────────────────── */
+.remove-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  line-height: 1;
+}
+
+.book-card:hover .remove-btn {
+  display: flex;
+}
+
+.remove-btn:hover {
+  background: rgba(210, 50, 50, 0.85);
+}
+
+/* ── Confirm overlay ──────────────────────────────────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.dialog {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 1.6rem 1.8rem;
+  box-shadow: var(--shadow-md);
+  max-width: 320px;
+  width: 90%;
   text-align: center;
 }
 
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+.dialog p {
+  font-size: 1rem;
+  margin-bottom: 1.2rem;
+  color: var(--text);
 }
 
-button {
-  cursor: pointer;
+.dialog-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
 }
 
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
+/* ── Responsive: wider cards on desktop ───────────────────────────────────── */
+@media (min-width: 900px) {
+  .book-grid {
+    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  }
 }
 
-#greet-input {
-  margin-right: 5px;
-}
-
+/* ── Dark mode ────────────────────────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+    --bg: #181820;
+    --surface: #22222e;
+    --surface-hover: #2a2a38;
+    --text: #e8e8ee;
+    --text-muted: #9090a8;
+    --text-faint: #555565;
+    --border: rgba(255, 255, 255, 0.07);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, .3);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, .45);
   }
 
-  a:hover {
-    color: #24c8db;
+  .tag {
+    background: #2b3550;
+    color: #7fa0d4;
   }
 
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
+  .btn-secondary {
+    background: #2e2e3e;
+    color: var(--text);
   }
-  button:active {
-    background-color: #0f0f0f69;
+
+  .btn-secondary:hover {
+    background: #3a3a4e;
   }
 }

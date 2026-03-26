@@ -13,9 +13,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "novel-reader",
-        "width": 800,
-        "height": 600
+        "title": "Novel Reader",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 400,
+        "minHeight": 500
       }
     ],
     "security": {

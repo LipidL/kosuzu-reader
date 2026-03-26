@@ -1,43 +1,40 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
-    <script type="module" src="/src/main.ts" defer></script>
-  </head>
 
-  <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Novel Reader</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+  <script type="module" src="/src/main.ts" defer></script>
+</head>
 
-      <div class="row">
-        <a href="https://vitejs.dev" target="_blank">
-          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img
-            src="/src/assets/tauri.svg"
-            class="logo tauri"
-            alt="Tauri logo"
-          />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img
-            src="/src/assets/typescript.svg"
-            class="logo typescript"
-            alt="typescript logo"
-          />
-        </a>
+<body>
+  <header class="app-header">
+    <h1 class="app-title">Novel Reader</h1>
+    <button id="add-books-btn" class="btn btn-primary">+ Add Books</button>
+  </header>
+
+  <main id="main-content">
+    <div id="empty-state" class="empty-state hidden">
+      <div class="empty-icon">📚</div>
+      <p class="empty-title">Your library is empty</p>
+      <p class="empty-sub">Click <strong>+ Add Books</strong> to import EPUB files.</p>
+    </div>
+
+    <div id="book-grid" class="book-grid"></div>
+  </main>
+
+  <!-- Confirm remove dialog -->
+  <div id="remove-overlay" class="overlay hidden">
+    <div class="dialog">
+      <p>Remove this book from the library?</p>
+      <div class="dialog-actions">
+        <button id="remove-cancel" class="btn btn-secondary">Cancel</button>
+        <button id="remove-confirm" class="btn btn-danger">Remove</button>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
+    </div>
+  </div>
+</body>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
-  </body>
 </html>
