@@ -11,8 +11,9 @@ interface Book {
     added_date: string;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// Helpers 
 
+// Simple HTML escaping to prevent XSS in book titles/authors/tags
 function escapeHtml(s: string): string {
     return s
         .replace(/&/g, "&amp;")
@@ -27,6 +28,7 @@ const COVER_PALETTE = [
     "#6a7fad", "#c49a3c",
 ];
 
+// Generate a consistent color for a book cover based on its title
 function coverColor(title: string): string {
     let hash = 0;
     for (let i = 0; i < title.length; i++) {
@@ -35,6 +37,7 @@ function coverColor(title: string): string {
     return COVER_PALETTE[Math.abs(hash) % COVER_PALETTE.length];
 }
 
+// Get initials from the book title
 function initials(title: string): string {
     return title
         .split(/\s+/)
@@ -43,8 +46,9 @@ function initials(title: string): string {
         .join("");
 }
 
-// ── Rendering ────────────────────────────────────────────────────────────────
+// Rendering
 
+// Render the list of books in the UI
 function renderBooks(books: Book[]): void {
     const grid = document.getElementById("book-grid")!;
     const empty = document.getElementById("empty-state")!;
@@ -86,15 +90,13 @@ function renderBooks(books: Book[]): void {
     });
 }
 
-// ── Data ─────────────────────────────────────────────────────────────────────
-
+// Get the list of books and render them
 async function loadBooks(): Promise<void> {
     const books: Book[] = await invoke("get_books");
     renderBooks(books);
 }
 
-// ── Remove dialog ────────────────────────────────────────────────────────────
-
+// Remove dialog
 let pendingRemoveId: string | null = null;
 
 document.getElementById("remove-cancel")!.addEventListener("click", () => {
@@ -111,8 +113,7 @@ document.getElementById("remove-confirm")!.addEventListener("click", async () =>
     await loadBooks();
 });
 
-// ── Add books ────────────────────────────────────────────────────────────────
-
+// Add books
 document.getElementById("add-books-btn")!.addEventListener("click", async () => {
     const selected = await open({
         multiple: true,
@@ -127,6 +128,5 @@ document.getElementById("add-books-btn")!.addEventListener("click", async () => 
     await loadBooks();
 });
 
-// ── Init ─────────────────────────────────────────────────────────────────────
-
+// Initialize app
 loadBooks();

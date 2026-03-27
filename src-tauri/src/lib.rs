@@ -20,14 +20,14 @@ struct Library {
     books: Vec<Book>,
 }
 
-// ── Persistence ──────────────────────────────────────────────────────────────
-
+/// Determine the path to the library JSON file, creating parent directories if needed.
 fn library_path(app: &AppHandle) -> std::path::PathBuf {
     let dir = app.path().app_data_dir().expect("app data dir unavailable");
     fs::create_dir_all(&dir).ok();
     dir.join("library.json")
 }
 
+/// Load the library from data directory, or return an empty library if the file doesn't exist or is invalid.
 fn load_library(app: &AppHandle) -> Library {
     let p = library_path(app);
     if p.exists() {
@@ -38,13 +38,13 @@ fn load_library(app: &AppHandle) -> Library {
     }
 }
 
+/// Save the library to the data directory, overwriting any existing file.
 fn save_library(app: &AppHandle, lib: &Library) -> Result<(), String> {
     let content = serde_json::to_string_pretty(lib).map_err(|e| e.to_string())?;
     fs::write(library_path(app), content).map_err(|e| e.to_string())
 }
 
-// ── EPUB metadata parsing ────────────────────────────────────────────────────
-
+/// Get the file stem (filename without extension) from a path.
 fn filename_stem(path: &str) -> String {
     Path::new(path)
         .file_stem()
@@ -142,7 +142,7 @@ fn parse_epub_meta(path: &str) -> (String, String, String) {
     (title, author, description)
 }
 
-// ── Tauri commands ───────────────────────────────────────────────────────────
+// Tauri commands
 
 #[tauri::command]
 fn get_books(app: AppHandle) -> Vec<Book> {
@@ -183,8 +183,7 @@ fn remove_book(app: AppHandle, id: String) -> Result<(), String> {
     save_library(&app, &lib)
 }
 
-// ── Entry point ───────────────────────────────────────────────────────────────
-
+/// Main entry point of application
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
