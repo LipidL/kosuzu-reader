@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, io::Read, path::Path};
+use std::{fs, path::Path};
 use tauri::{AppHandle, Manager};
 
 // ── Data model ──────────────────────────────────────────────────────────────
@@ -53,29 +53,6 @@ fn filename_stem(path: &str) -> String {
         .to_string()
 }
 
-/// Extract the OPF rootfile path from META-INF/container.xml content.
-fn opf_path_from_container(xml: &str) -> Option<String> {
-    let marker = "full-path=\"";
-    let start = xml.find(marker)? + marker.len();
-    let end = xml[start..].find('"')? + start;
-    Some(xml[start..end].to_string())
-}
-
-/// Extract the text content of the first matching XML element (handles attributes on open tag).
-fn xml_tag_text<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
-    let open_prefix = format!("<{}", tag);
-    let close_tag = format!("</{}>", tag);
-    let tag_start = xml.find(&open_prefix)?;
-    let content_start = xml[tag_start..].find('>')? + tag_start + 1;
-    let end = xml[content_start..].find(&close_tag)? + content_start;
-    let s = xml[content_start..end].trim();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
-}
-
 /// Strip HTML/XML tags from a string (for descriptions that embed markup).
 fn strip_tags(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -95,48 +72,25 @@ fn strip_tags(s: &str) -> String {
 fn parse_epub_meta(path: &str) -> (String, String, String) {
     let fallback = || (filename_stem(path), String::new(), String::new());
 
-    let f = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return fallback(),
-    };
-    let mut archive = match zip::ZipArchive::new(f) {
-        Ok(a) => a,
+    let doc = match epub::doc::EpubDoc::new(path) {
+        Ok(doc) => doc,
         Err(_) => return fallback(),
     };
 
-    // Find OPF path via container.xml
-    let opf_path = {
-        let mut entry = match archive.by_name("META-INF/container.xml") {
-            Ok(e) => e,
-            Err(_) => return fallback(),
-        };
-        let mut buf = String::new();
-        entry.read_to_string(&mut buf).ok();
-        match opf_path_from_container(&buf) {
-            Some(p) => p,
-            None => return fallback(),
-        }
-    };
+    // Get title - use get_title() if available, otherwise use mdata()
+    let title = doc.get_title().unwrap_or_else(|| filename_stem(path));
 
-    // Read OPF file
-    let opf = {
-        let mut entry = match archive.by_name(&opf_path) {
-            Ok(e) => e,
-            Err(_) => return fallback(),
-        };
-        let mut buf = String::new();
-        entry.read_to_string(&mut buf).ok();
-        buf
-    };
+    // Get author/creator
+    let author = doc
+        .mdata("creator")
+        .map(|m| m.value.as_str())
+        .unwrap_or_default()
+        .to_string();
 
-    let title = xml_tag_text(&opf, "dc:title")
-        .map(str::to_string)
-        .unwrap_or_else(|| filename_stem(path));
-    let author = xml_tag_text(&opf, "dc:creator")
-        .map(str::to_string)
-        .unwrap_or_default();
-    let description = xml_tag_text(&opf, "dc:description")
-        .map(|s| strip_tags(s))
+    // Get description
+    let description = doc
+        .mdata("description")
+        .map(|m| strip_tags(&m.value))
         .unwrap_or_default();
 
     (title, author, description)
