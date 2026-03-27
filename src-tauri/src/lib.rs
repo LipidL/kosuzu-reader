@@ -96,6 +96,17 @@ fn parse_epub_meta(path: &str) -> (String, String, String) {
     (title, author, description)
 }
 
+#[tauri::command]
+fn get_content(path: &str) -> Result<(), String> {
+    let mut doc = epub::doc::EpubDoc::new(path).map_err(|e| e.to_string())?;
+    let (current_content, mime_type) = doc.get_current().ok_or("Failed to get current content")?;
+    // encode content to string and print it out
+    let content_str = String::from_utf8(current_content).map_err(|e| e.to_string())?;
+    println!("Content ({}):\n{}", mime_type, content_str);
+    Ok(())
+
+}
+
 // Tauri commands
 
 #[tauri::command]
@@ -146,7 +157,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_books,
             add_epub_files,
-            remove_book
+            remove_book,
+            get_content,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

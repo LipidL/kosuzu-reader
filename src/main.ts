@@ -128,5 +128,20 @@ document.getElementById("add-books-btn")!.addEventListener("click", async () => 
     await loadBooks();
 });
 
+// Get book content when the user clicks on a book card (for demonstration purposes)
+document.getElementById("book-grid")!.addEventListener("click", async (e) => {
+    const card = (e.target as HTMLElement).closest(".book-card") as HTMLElement;
+    if (!card) return;
+    const id = card.dataset.id;
+    if (!id) return;
+
+    // Get book content
+    const books: Book[] = await invoke("get_books");
+    const book = books.find((b) => b.id === id);
+    if (!book) return;
+    await invoke("get_content", { path: book.path });
+});
+
+
 // Initialize app
 loadBooks();
