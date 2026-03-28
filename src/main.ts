@@ -148,83 +148,143 @@ let currentBook: Book | null = null;
 let currentChapter = 0;
 let totalChapters = 0;
 
-// Open reader with a specific book
-async function openReader(book: Book): Promise<void> {
-    currentBook = book;
-    currentChapter = 0;
-
-    // Get total chapters
-    const chapters: number = await invoke("get_epub_chapters", { path: book.path });
-    totalChapters = chapters;
-
-    // Hide main content and show reader
-    document.getElementById("main-content")!.classList.add("hidden");
-    document.getElementById("reader-view")!.classList.remove("hidden");
-    document.getElementById("reader-title")!.textContent = book.title;
-
-    // Load first chapter
-    await loadChapter(0);
+interface ChapterData {
+    content: string;
+    resources: Record<string, string>; // epub:// URI -> base64
 }
 
-// Load a specific chapter
+// Per-reader-session chapter cache
+const chapterCache = new Map<number, ChapterData>();
+// Increment to cancel in-flight preloads when navigating or closing
+let preloadGen = 0;
+
+const MIME_TYPES: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+};
+
+function applyResourcesToImages(
+    contentDiv: HTMLElement,
+    resources: Record<string, string>,
+): void {
+    for (const img of contentDiv.querySelectorAll<HTMLImageElement>("img")) {
+        const src = img.getAttribute("src");
+        if (src && resources[src] && !src.startsWith("data:") && !src.startsWith("http")) {
+            const ext = src.split(".").pop()?.toLowerCase() ?? "png";
+            img.src = `data:${MIME_TYPES[ext] ?? "image/png"};base64,${resources[src]}`;
+        }
+    }
+}
+
+function renderChapter(chapterIndex: number, data: ChapterData): void {
+    const contentDiv = document.getElementById("reader-content")!;
+    contentDiv.innerHTML = data.content;
+    applyResourcesToImages(contentDiv, data.resources);
+
+    document.getElementById("reader-chapter-info")!.textContent =
+        `${chapterIndex + 1} / ${totalChapters}`;
+    (document.getElementById("reader-prev-btn") as HTMLButtonElement).disabled =
+        chapterIndex === 0;
+    (document.getElementById("reader-next-btn") as HTMLButtonElement).disabled =
+        chapterIndex >= totalChapters - 1;
+
+    contentDiv.scrollTop = 0;
+    currentChapter = chapterIndex;
+}
+
+// Kick off background preloading of all un-cached chapters, prioritising
+// neighbours of the current chapter.
+function startPreloading(): void {
+    if (!currentBook) return;
+    preloadGen++;
+    const gen = preloadGen;
+    const book = currentBook;
+
+    const queue: number[] = [];
+    for (let delta = 1; delta < totalChapters; delta++) {
+        const next = currentChapter + delta;
+        const prev = currentChapter - delta;
+        if (next < totalChapters && !chapterCache.has(next)) queue.push(next);
+        if (prev >= 0 && !chapterCache.has(prev)) queue.push(prev);
+    }
+
+    (async () => {
+        for (const idx of queue) {
+            if (preloadGen !== gen || currentBook !== book) return;
+            if (chapterCache.has(idx)) continue;
+            try {
+                const data = await invoke<ChapterData>("get_chapter_with_resources", {
+                    path: book.path,
+                    chapter: idx,
+                });
+                if (preloadGen === gen) chapterCache.set(idx, data);
+            } catch (e) {
+                console.warn(`Preload chapter ${idx} failed:`, e);
+            }
+        }
+    })();
+}
+
+// Open reader with a specific book
+async function openReader(book: Book): Promise<void> {
+    console.log(`Opening book: ${book.title}, time: ${new Date().toISOString()}`);
+    currentBook = book;
+    currentChapter = 0; // TODO: restore saved progress
+    chapterCache.clear();
+    preloadGen++;
+    document.getElementById("main-content")!.classList.add("hidden");
+
+    // Fetch chapter count and first-chapter content+resources in parallel
+    console.log(`Fetching initial chapter and chapter count for: ${book.title}, time: ${new Date().toISOString()}`);
+    const startChapter = 0;
+    const [chapters, chapterData] = await Promise.all([
+        invoke<number>("get_epub_chapters", { path: book.path }),
+        invoke<ChapterData>("get_chapter_with_resources", {
+            path: book.path,
+            chapter: startChapter,
+        }),
+    ]);
+    console.log(`Fetched initial chapter and chapter count for: ${book.title}, time: ${new Date().toISOString()}`);
+
+    totalChapters = chapters;
+    chapterCache.set(startChapter, chapterData);
+    renderChapter(startChapter, chapterData);
+    console.log(`Rendered initial chapter for: ${book.title}, time: ${new Date().toISOString()}`);
+
+    document.getElementById("reader-view")!.classList.remove("hidden");
+    document.getElementById("reader-title")!.textContent = book.title;
+    console.log(`Displayed reader view for: ${book.title}, time: ${new Date().toISOString()}`);
+
+    // Kick off background preloading for all remaining chapters
+    startPreloading();
+}
+
+// Load a specific chapter, using the cache when available
 async function loadChapter(chapterIndex: number): Promise<void> {
     if (!currentBook) return;
 
+    if (chapterCache.has(chapterIndex)) {
+        renderChapter(chapterIndex, chapterCache.get(chapterIndex)!);
+        startPreloading();
+        return;
+    }
+
     try {
-        const content: string = await invoke("get_content", {
+        const data = await invoke<ChapterData>("get_chapter_with_resources", {
             path: currentBook.path,
             chapter: chapterIndex,
         });
-
-        const contentDiv = document.getElementById("reader-content")!;
-        contentDiv.innerHTML = content;
-
-        // Update chapter info
-        document.getElementById("reader-chapter-info")!.textContent = `${chapterIndex + 1} / ${totalChapters}`;
-
-        // Update button states
-        const prevBtn = document.getElementById("reader-prev-btn")! as HTMLButtonElement;
-        const nextBtn = document.getElementById("reader-next-btn")! as HTMLButtonElement;
-        prevBtn.disabled = chapterIndex === 0;
-        nextBtn.disabled = chapterIndex >= totalChapters - 1;
-
-        // Load images with resource fetching
-        const images = contentDiv.querySelectorAll<HTMLImageElement>("img");
-        for (const img of images) {
-            const src = img.getAttribute("src");
-            if (src && !src.startsWith("data:") && !src.startsWith("http")) {
-                try {
-                    console.log(`Loading resource: ${src}, time: ${new Date().toISOString()}`);
-                    const resourceData: String = await invoke("get_epub_resource", {
-                        path: currentBook.path,
-                        resourcePath: src,
-                    });
-                    console.log(`Resource loaded: ${src}, size: ${resourceData.length} bytes, time: ${new Date().toISOString()}`);
-
-                    // Detect mime type from the file extension
-                    const ext = src.split('.').pop()?.toLowerCase() || 'png';
-                    const mimeType = {
-                        'png': 'image/png',
-                        'jpg': 'image/jpeg',
-                        'jpeg': 'image/jpeg',
-                        'gif': 'image/gif',
-                        'webp': 'image/webp',
-                        'svg': 'image/svg+xml',
-                    }[ext] || 'image/png';
-
-                    img.src = `data:${mimeType};base64,${resourceData}`;
-                    console.log(`Image src set for ${src}, time: ${new Date().toISOString()}`);
-                } catch (e) {
-                    console.warn(`Failed to load resource: ${src}`, e);
-                    // Leave the original broken image as-is
-                }
-            }
-        }
-
-        currentChapter = chapterIndex;
+        chapterCache.set(chapterIndex, data);
+        renderChapter(chapterIndex, data);
+        startPreloading();
     } catch (e) {
         console.error("Failed to load chapter:", e);
-        document.getElementById("reader-content")!.innerHTML = `<p>Error loading chapter: ${e}</p>`;
+        document.getElementById("reader-content")!.innerHTML =
+            `<p>Error loading chapter: ${e}</p>`;
     }
 }
 
@@ -234,6 +294,8 @@ document.getElementById("reader-back-btn")!.addEventListener("click", () => {
     document.getElementById("main-content")!.classList.remove("hidden");
     currentBook = null;
     currentChapter = 0;
+    chapterCache.clear();
+    preloadGen++; // cancel any in-flight preloads
 });
 
 document.getElementById("reader-prev-btn")!.addEventListener("click", async () => {

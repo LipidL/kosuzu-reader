@@ -95,6 +95,59 @@ fn parse_epub_meta(path: &str) -> (String, String, String) {
     (title, author, description)
 }
 
+/// Holds the HTML content of a chapter together with all embedded resources
+/// (images, etc.) encoded as base64 strings, keyed by their epub:// URI.
+#[derive(Serialize)]
+struct ChapterData {
+    content: String,
+    resources: std::collections::HashMap<String, String>,
+}
+
+/// Scan a content string for every distinct `epub://…` URI.
+fn extract_epub_uris(content: &str) -> Vec<String> {
+    let mut uris: Vec<String> = Vec::new();
+    let mut rest = content;
+    while let Some(pos) = rest.find("epub://") {
+        let slice = &rest[pos..];
+        let end = slice
+            .find(|c: char| c == '"' || c == '\'' || c == ' ' || c == '\n' || c == '\t' || c == '>')
+            .unwrap_or(slice.len());
+        let uri = &slice[..end];
+        if !uris.iter().any(|u| u == uri) {
+            uris.push(uri.to_string());
+        }
+        rest = &rest[pos + 7..];
+    }
+    uris
+}
+
+/// Return the HTML content of a chapter together with all embedded resources
+/// pre-fetched as base64 strings.  A single epub file open covers both the
+/// content and all resource fetches, eliminating per-image round-trips.
+#[tauri::command]
+fn get_chapter_with_resources(path: &str, chapter: usize) -> Result<ChapterData, String> {
+    let mut doc = epub::doc::EpubDoc::new(path).map_err(|e| e.to_string())?;
+
+    for _ in 0..chapter {
+        doc.go_next();
+    }
+
+    let raw = doc
+        .get_current_with_epub_uris()
+        .map_err(|e| e.to_string())?;
+    let content = String::from_utf8(raw).map_err(|e| e.to_string())?;
+
+    let mut resources = std::collections::HashMap::new();
+    for uri in extract_epub_uris(&content) {
+        let trimmed = uri.trim_start_matches("epub://");
+        if let Some(data) = doc.get_resource_by_path(trimmed) {
+            resources.insert(uri, STANDARD.encode(&data));
+        }
+    }
+
+    Ok(ChapterData { content, resources })
+}
+
 /// Get the content of the current chapter as a string.
 /// The resource uris are renamed to have the epub:// prefix and all are relative to the root file
 #[tauri::command]
@@ -196,6 +249,7 @@ pub fn run() {
             get_content,
             get_epub_resource,
             get_epub_chapters,
+            get_chapter_with_resources,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
