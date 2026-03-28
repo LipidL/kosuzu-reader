@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 use tauri::{AppHandle, Manager};
 
-// ── Data model ──────────────────────────────────────────────────────────────
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Book {
     pub id: String,
@@ -96,15 +94,51 @@ fn parse_epub_meta(path: &str) -> (String, String, String) {
     (title, author, description)
 }
 
+/// Get the content of the current chapter as a string.
+/// The resource uris are renamed to have the epub:// prefix and all are relative to the root file
 #[tauri::command]
-fn get_content(path: &str) -> Result<(), String> {
+fn get_content(path: &str, chapter: usize) -> Result<String, String> {
     let mut doc = epub::doc::EpubDoc::new(path).map_err(|e| e.to_string())?;
-    let (current_content, mime_type) = doc.get_current().ok_or("Failed to get current content")?;
-    // encode content to string and print it out
-    let content_str = String::from_utf8(current_content).map_err(|e| e.to_string())?;
-    println!("Content ({}):\n{}", mime_type, content_str);
-    Ok(())
 
+    // Navigate to the specified chapter
+    for _ in 0..chapter {
+        doc.go_next();
+    }
+
+    let current_content = doc
+        .get_current_with_epub_uris()
+        .map_err(|e| e.to_string())?;
+    let content_str = String::from_utf8(current_content).map_err(|e| e.to_string())?;
+
+    Ok(content_str)
+}
+
+/// Get the raw bytes of a resource given its path (with epub:// prefix) and the epub file path.
+#[tauri::command]
+fn get_epub_resource(path: &str, resource_path: &str) -> Result<Vec<u8>, String> {
+    let trimmed_resource_path = resource_path.trim_start_matches("epub://");
+    let mut doc = epub::doc::EpubDoc::new(path).map_err(|e| e.to_string())?;
+    if let Some(resource) = doc.get_resource_by_path(trimmed_resource_path) {
+        println!("Found resource: {}", trimmed_resource_path);
+        return Ok(resource);
+    }
+
+    // If all else fails, return an error
+    Err(format!("Resource not found: {}", resource_path))
+}
+
+#[tauri::command]
+fn get_epub_chapters(path: &str) -> Result<usize, String> {
+    let doc = epub::doc::EpubDoc::new(path).map_err(|e| e.to_string())?;
+    let mut count = 1; // Start with 1 because we're already at chapter 0
+    let mut test_doc = doc;
+
+    // Count how many chapters we can advance through
+    while test_doc.go_next() {
+        count += 1;
+    }
+
+    Ok(count)
 }
 
 // Tauri commands
@@ -159,6 +193,8 @@ pub fn run() {
             add_epub_files,
             remove_book,
             get_content,
+            get_epub_resource,
+            get_epub_chapters,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

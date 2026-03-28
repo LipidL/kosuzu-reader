@@ -128,18 +128,128 @@ document.getElementById("add-books-btn")!.addEventListener("click", async () => 
     await loadBooks();
 });
 
-// Get book content when the user clicks on a book card (for demonstration purposes)
+// Get book content when the user clicks on a book card
 document.getElementById("book-grid")!.addEventListener("click", async (e) => {
     const card = (e.target as HTMLElement).closest(".book-card") as HTMLElement;
     if (!card) return;
     const id = card.dataset.id;
     if (!id) return;
 
-    // Get book content
     const books: Book[] = await invoke("get_books");
     const book = books.find((b) => b.id === id);
     if (!book) return;
-    await invoke("get_content", { path: book.path });
+
+    // Open the reader
+    openReader(book);
+});
+
+// Reader state
+let currentBook: Book | null = null;
+let currentChapter = 0;
+let totalChapters = 0;
+
+// Open reader with a specific book
+async function openReader(book: Book): Promise<void> {
+    currentBook = book;
+    currentChapter = 0;
+
+    // Get total chapters
+    const chapters: number = await invoke("get_epub_chapters", { path: book.path });
+    totalChapters = chapters;
+
+    // Hide main content and show reader
+    document.getElementById("main-content")!.classList.add("hidden");
+    document.getElementById("reader-view")!.classList.remove("hidden");
+    document.getElementById("reader-title")!.textContent = book.title;
+
+    // Load first chapter
+    await loadChapter(0);
+}
+
+// Load a specific chapter
+async function loadChapter(chapterIndex: number): Promise<void> {
+    if (!currentBook) return;
+
+    try {
+        const content: string = await invoke("get_content", {
+            path: currentBook.path,
+            chapter: chapterIndex,
+        });
+
+        const contentDiv = document.getElementById("reader-content")!;
+        contentDiv.innerHTML = content;
+
+        // Update chapter info
+        document.getElementById("reader-chapter-info")!.textContent = `${chapterIndex + 1} / ${totalChapters}`;
+
+        // Update button states
+        const prevBtn = document.getElementById("reader-prev-btn")! as HTMLButtonElement;
+        const nextBtn = document.getElementById("reader-next-btn")! as HTMLButtonElement;
+        prevBtn.disabled = chapterIndex === 0;
+        nextBtn.disabled = chapterIndex >= totalChapters - 1;
+
+        // Load images with resource fetching
+        const images = contentDiv.querySelectorAll<HTMLImageElement>("img");
+        for (const img of images) {
+            const src = img.getAttribute("src");
+            if (src && !src.startsWith("data:") && !src.startsWith("http")) {
+                try {
+                    const resourceData: number[] = await invoke("get_epub_resource", {
+                        path: currentBook.path,
+                        resourcePath: src,
+                    });
+                    // Convert to base64 data URL
+                    const bytes = new Uint8Array(resourceData);
+                    let binary = '';
+                    for (let i = 0; i < bytes.length; i++) {
+                        binary += String.fromCharCode(bytes[i]);
+                    }
+                    const base64 = btoa(binary);
+
+                    // Detect mime type from the file extension
+                    const ext = src.split('.').pop()?.toLowerCase() || 'png';
+                    const mimeType = {
+                        'png': 'image/png',
+                        'jpg': 'image/jpeg',
+                        'jpeg': 'image/jpeg',
+                        'gif': 'image/gif',
+                        'webp': 'image/webp',
+                        'svg': 'image/svg+xml',
+                    }[ext] || 'image/png';
+
+                    img.src = `data:${mimeType};base64,${base64}`;
+                } catch (e) {
+                    console.warn(`Failed to load resource: ${src}`, e);
+                    // Leave the original broken image as-is
+                }
+            }
+        }
+
+        currentChapter = chapterIndex;
+    } catch (e) {
+        console.error("Failed to load chapter:", e);
+        document.getElementById("reader-content")!.innerHTML = `<p>Error loading chapter: ${e}</p>`;
+    }
+}
+
+// Reader controls
+document.getElementById("reader-back-btn")!.addEventListener("click", () => {
+    document.getElementById("reader-view")!.classList.add("hidden");
+    document.getElementById("main-content")!.classList.remove("hidden");
+    currentBook = null;
+    currentChapter = 0;
+});
+
+document.getElementById("reader-prev-btn")!.addEventListener("click", async () => {
+    if (currentChapter > 0) {
+        await loadChapter(currentChapter - 1);
+    }
+});
+
+document.getElementById("reader-next-btn")!.addEventListener("click", async () => {
+    if (currentChapter < totalChapters - 1) {
+        await loadChapter(currentChapter + 1);
+    }
 });
 
 
