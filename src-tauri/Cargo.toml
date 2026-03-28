@@ -26,3 +26,4 @@ serde_json = "1"
 epub = "2.1.5"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 use tauri::{AppHandle, Manager};
+use base64::{Engine, engine::general_purpose::STANDARD};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Book {
@@ -115,12 +116,12 @@ fn get_content(path: &str, chapter: usize) -> Result<String, String> {
 
 /// Get the raw bytes of a resource given its path (with epub:// prefix) and the epub file path.
 #[tauri::command]
-fn get_epub_resource(path: &str, resource_path: &str) -> Result<Vec<u8>, String> {
+fn get_epub_resource(path: &str, resource_path: &str) -> Result<String, String> {
     let trimmed_resource_path = resource_path.trim_start_matches("epub://");
     let mut doc = epub::doc::EpubDoc::new(path).map_err(|e| e.to_string())?;
     if let Some(resource) = doc.get_resource_by_path(trimmed_resource_path) {
-        println!("Found resource: {}", trimmed_resource_path);
-        return Ok(resource);
+        let base64_resource = STANDARD.encode(&resource);
+        return Ok(base64_resource);
     }
 
     // If all else fails, return an error

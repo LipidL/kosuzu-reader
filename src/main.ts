@@ -194,17 +194,12 @@ async function loadChapter(chapterIndex: number): Promise<void> {
             const src = img.getAttribute("src");
             if (src && !src.startsWith("data:") && !src.startsWith("http")) {
                 try {
-                    const resourceData: number[] = await invoke("get_epub_resource", {
+                    console.log(`Loading resource: ${src}, time: ${new Date().toISOString()}`);
+                    const resourceData: String = await invoke("get_epub_resource", {
                         path: currentBook.path,
                         resourcePath: src,
                     });
-                    // Convert to base64 data URL
-                    const bytes = new Uint8Array(resourceData);
-                    let binary = '';
-                    for (let i = 0; i < bytes.length; i++) {
-                        binary += String.fromCharCode(bytes[i]);
-                    }
-                    const base64 = btoa(binary);
+                    console.log(`Resource loaded: ${src}, size: ${resourceData.length} bytes, time: ${new Date().toISOString()}`);
 
                     // Detect mime type from the file extension
                     const ext = src.split('.').pop()?.toLowerCase() || 'png';
@@ -217,7 +212,8 @@ async function loadChapter(chapterIndex: number): Promise<void> {
                         'svg': 'image/svg+xml',
                     }[ext] || 'image/png';
 
-                    img.src = `data:${mimeType};base64,${base64}`;
+                    img.src = `data:${mimeType};base64,${resourceData}`;
+                    console.log(`Image src set for ${src}, time: ${new Date().toISOString()}`);
                 } catch (e) {
                     console.warn(`Failed to load resource: ${src}`, e);
                     // Leave the original broken image as-is
