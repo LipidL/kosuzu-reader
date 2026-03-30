@@ -144,16 +144,25 @@ document.getElementById("book-grid")!.addEventListener("click", async (e) => {
 });
 
 // Reader state
+/** the currently open book, or null if reader is closed */
 let currentBook: Book | null = null;
+/** the currently displayed chapter index within the open book */
 let currentChapter = 0;
+/** total number of chapters in the open book */
 let totalChapters = 0;
+/** the currently displayed page index within the current chapter */
+let currentPage = 0;
+/** total number of pages in the current chapter */
+let totalPages = 1;
+/** whether we should jump to the last page of the next chapter when navigating forward */
+let pendingLastPage = false;
 
 interface ChapterData {
     content: string;
     resources: Record<string, string>; // epub:// URI -> base64
 }
 
-// Per-reader-session chapter cache
+/** Per-reader-session chapter cache */
 const chapterCache = new Map<number, ChapterData>();
 // Increment to cancel in-flight preloads when navigating or closing
 let preloadGen = 0;
@@ -167,6 +176,11 @@ const MIME_TYPES: Record<string, string> = {
     svg: "image/svg+xml",
 };
 
+/**
+ * @description Replace image sources in the chapter content with data URIs from the resources map
+ * @param contentDiv The container element of the chapter content where <img> tags are located
+ * @param resources A mapping of epub:// URIs to base64-encoded image data, used to replace the src attributes of <img> tags in the chapter content
+ */
 function applyResourcesToImages(
     contentDiv: HTMLElement,
     resources: Record<string, string>,
@@ -180,20 +194,103 @@ function applyResourcesToImages(
     }
 }
 
-function renderChapter(chapterIndex: number, data: ChapterData): void {
-    const contentDiv = document.getElementById("reader-content")!;
-    contentDiv.innerHTML = data.content;
-    applyResourcesToImages(contentDiv, data.resources);
+// Strip non-renderable EPUB head elements (<link>, <title>, <script>, <meta>)
+// that leak into chapter HTML and can cause phantom layout boxes.
+function sanitizeChapterHtml(html: string): string {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("link, title, script, meta").forEach((el) => el.remove());
+    return doc.body?.innerHTML ?? html;
+}
 
+
+/**
+ * @description Calculate the dimensions available for rendering chapter content, accounting for padding.
+ * @returns An object containing the width and height available for rendering chapter content
+ */
+function getPageDims(): { width: number; height: number } {
+    const el = document.getElementById("reader-content")!;
+    return { width: el.clientWidth, height: el.clientHeight };
+}
+
+/**
+ * @description Update the reader navigation UI (chapter/page info and prev/next button states) based on the current chapter and page indices
+ * @param chapterIndex The index of the currently displayed chapter
+ */
+function updateReaderNav(chapterIndex: number): void {
     document.getElementById("reader-chapter-info")!.textContent =
-        `${chapterIndex + 1} / ${totalChapters}`;
+        `Ch ${chapterIndex + 1} / ${totalChapters}  ·  Pg ${currentPage + 1} / ${totalPages}`;
     (document.getElementById("reader-prev-btn") as HTMLButtonElement).disabled =
-        chapterIndex === 0;
+        currentPage === 0 && chapterIndex === 0;
     (document.getElementById("reader-next-btn") as HTMLButtonElement).disabled =
-        chapterIndex >= totalChapters - 1;
+        currentPage >= totalPages - 1 && chapterIndex >= totalChapters - 1;
+}
 
-    contentDiv.scrollTop = 0;
+/**
+ * @description Render a specific chapter in the reader
+ * @param chapterIndex The chapter number to be rendered
+ * @param data The data of that chapter
+ */
+function renderChapter(chapterIndex: number, data: ChapterData): void {
+    const pagesDiv = document.getElementById("reader-pages")!;
+    const { width: pageWidth, height: pageHeight } = getPageDims();
+
+    pagesDiv.style.transition = "none";
+    pagesDiv.style.transform = "translateX(0)";
+    pagesDiv.style.height = pageHeight + "px";
+    pagesDiv.style.columnWidth = pageWidth + "px";
+    pagesDiv.innerHTML = `<div class="page-content">${sanitizeChapterHtml(data.content)}</div>`;
+    applyResourcesToImages(pagesDiv, data.resources);
+
+    // Compute the max image height: available content area minus the image's
+    // own vertical margins (which are NOT included in max-height but DO add
+    // to the flow height, causing overflow into a phantom column).
+    const pc = pagesDiv.firstElementChild as HTMLElement;
+    const pcStyle = getComputedStyle(pc);
+    const availH = pageHeight - parseFloat(pcStyle.paddingTop) - parseFloat(pcStyle.paddingBottom);
+    const sampleImg = pagesDiv.querySelector<HTMLImageElement>("img");
+    let imgMarginV = 0;
+    if (sampleImg) {
+        const is = getComputedStyle(sampleImg);
+        imgMarginV = parseFloat(is.marginTop) + parseFloat(is.marginBottom);
+    }
+    pagesDiv.style.setProperty("--page-img-max-h", Math.max(Math.floor(availH - imgMarginV), 64) + "px");
+
     currentChapter = chapterIndex;
+    currentPage = 0;
+
+    // Double RAF: first pass lets the browser lay out columns,
+    // second pass ensures scrollWidth is accurate before we read it.
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            totalPages = Math.max(1, Math.round(pagesDiv.scrollWidth / pageWidth));
+            console.log(`Chapter ${chapterIndex}: calculated totalPages = ${totalPages}, scrollWidth = ${pagesDiv.scrollWidth}, pageWidth = ${pageWidth}`);
+            if (pendingLastPage) {
+                currentPage = totalPages - 1;
+                pendingLastPage = false;
+            }
+            pagesDiv.style.transition = "none";
+            pagesDiv.style.transform = `translateX(${-currentPage * pageWidth}px)`;
+            requestAnimationFrame(() => { pagesDiv.style.transition = ""; });
+            updateReaderNav(chapterIndex);
+        });
+    });
+}
+
+async function navigatePage(direction: 1 | -1): Promise<void> {
+    const pagesDiv = document.getElementById("reader-pages")!;
+    const { width: pageWidth } = getPageDims();
+
+    const newPage = currentPage + direction;
+    if (newPage >= 0 && newPage < totalPages) {
+        currentPage = newPage;
+        pagesDiv.style.transform = `translateX(${-currentPage * pageWidth}px)`;
+        updateReaderNav(currentChapter);
+    } else if (direction > 0 && currentChapter < totalChapters - 1) {
+        await loadChapter(currentChapter + 1);
+    } else if (direction < 0 && currentChapter > 0) {
+        pendingLastPage = true;
+        await loadChapter(currentChapter - 1);
+    }
 }
 
 // Kick off background preloading of all un-cached chapters, prioritising
@@ -252,12 +349,13 @@ async function openReader(book: Book): Promise<void> {
 
     totalChapters = chapters;
     chapterCache.set(startChapter, chapterData);
-    renderChapter(startChapter, chapterData);
-    console.log(`Rendered initial chapter for: ${book.title}, time: ${new Date().toISOString()}`);
-
+    // Show the reader view BEFORE rendering so clientWidth/clientHeight are non-zero
     document.getElementById("reader-view")!.classList.remove("hidden");
     document.getElementById("reader-title")!.textContent = book.title;
     console.log(`Displayed reader view for: ${book.title}, time: ${new Date().toISOString()}`);
+
+    renderChapter(startChapter, chapterData);
+    console.log(`Rendered initial chapter for: ${book.title}, time: ${new Date().toISOString()}`);
 
     // Kick off background preloading for all remaining chapters
     startPreloading();
@@ -294,22 +392,71 @@ document.getElementById("reader-back-btn")!.addEventListener("click", () => {
     document.getElementById("main-content")!.classList.remove("hidden");
     currentBook = null;
     currentChapter = 0;
+    currentPage = 0;
+    totalPages = 1;
     chapterCache.clear();
     preloadGen++; // cancel any in-flight preloads
 });
 
-document.getElementById("reader-prev-btn")!.addEventListener("click", async () => {
-    if (currentChapter > 0) {
-        await loadChapter(currentChapter - 1);
+document.getElementById("reader-prev-btn")!.addEventListener("click", () => navigatePage(-1));
+document.getElementById("reader-next-btn")!.addEventListener("click", () => navigatePage(1));
+
+// Keyboard page navigation
+document.addEventListener("keydown", (e) => {
+    if (!currentBook) return;
+    if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
+        e.preventDefault();
+        navigatePage(1);
+    } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+        e.preventDefault();
+        navigatePage(-1);
     }
 });
 
-document.getElementById("reader-next-btn")!.addEventListener("click", async () => {
-    if (currentChapter < totalChapters - 1) {
-        await loadChapter(currentChapter + 1);
+// Recalculate pages on resize
+window.addEventListener("resize", () => {
+    if (!currentBook) return;
+    const pagesDiv = document.getElementById("reader-pages")!;
+    const { width: pageWidth, height: pageHeight } = getPageDims();
+    pagesDiv.style.height = pageHeight + "px";
+    pagesDiv.style.columnWidth = pageWidth + "px";
+    const pcResize = pagesDiv.firstElementChild as HTMLElement | null;
+    if (pcResize) {
+        const s = getComputedStyle(pcResize);
+        const availH = pageHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom);
+        const sampleImg = pagesDiv.querySelector<HTMLImageElement>("img");
+        let imgMarginV = 0;
+        if (sampleImg) {
+            const is = getComputedStyle(sampleImg);
+            imgMarginV = parseFloat(is.marginTop) + parseFloat(is.marginBottom);
+        }
+        pagesDiv.style.setProperty("--page-img-max-h", Math.max(Math.floor(availH - imgMarginV), 64) + "px");
     }
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            totalPages = Math.max(1, Math.round(pagesDiv.scrollWidth / pageWidth));
+            currentPage = Math.min(currentPage, totalPages - 1);
+            pagesDiv.style.transition = "none";
+            pagesDiv.style.transform = `translateX(${-currentPage * pageWidth}px)`;
+            requestAnimationFrame(() => { pagesDiv.style.transition = ""; });
+            updateReaderNav(currentChapter);
+        });
+    });
 });
 
+// Swipe to navigate pages
+{
+    let touchStartX = 0;
+    const readerContent = document.getElementById("reader-content")!;
+    readerContent.addEventListener("touchstart", (e) => {
+        touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    readerContent.addEventListener("touchend", (e) => {
+        if (!currentBook) return;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        if (Math.abs(dx) > 50) navigatePage(dx < 0 ? 1 : -1);
+    }, { passive: true });
+}
 
 // Initialize app
 loadBooks();

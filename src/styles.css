@@ -341,62 +341,78 @@ body {
 #reader-chapter-info {
   font-size: 0.85rem;
   color: var(--text-muted);
-  min-width: 80px;
+  min-width: 200px;
   text-align: center;
 }
 
 .reader-content {
   flex: 1;
-  overflow-y: auto;
-  padding: 1.5rem;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+}
+
+.page-content {
+  padding: 1.5rem 2.5rem;
+}
+
+.reader-pages {
+  column-fill: auto;
+  column-gap: 0;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
   font-size: 1rem;
   line-height: 1.7;
   color: var(--text);
   font-family: Georgia, "Times New Roman", serif;
 }
 
-.reader-content p {
+.reader-pages p {
   margin-bottom: 1rem;
 }
 
-.reader-content h1,
-.reader-content h2,
-.reader-content h3,
-.reader-content h4,
-.reader-content h5,
-.reader-content h6 {
+.reader-pages h1,
+.reader-pages h2,
+.reader-pages h3,
+.reader-pages h4,
+.reader-pages h5,
+.reader-pages h6 {
   font-family: inherit;
   font-weight: 700;
   margin: 1.5rem 0 1rem;
   color: var(--text);
 }
 
-.reader-content h1 {
+.reader-pages h1 {
   font-size: 1.8rem;
 }
 
-.reader-content h2 {
+.reader-pages h2 {
   font-size: 1.5rem;
 }
 
-.reader-content h3 {
+.reader-pages h3 {
   font-size: 1.3rem;
 }
 
-.reader-content img {
+.reader-pages img {
   max-width: 100%;
+  max-height: var(--page-img-max-h, 80vh);
+  width: auto;
   height: auto;
-  margin: 1rem 0;
+  display: block;
+  margin: 1rem auto;
   border-radius: 4px;
+  break-inside: avoid;
 }
 
-.reader-content a {
+.reader-pages a {
   color: var(--accent);
   text-decoration: none;
   border-bottom: 1px solid var(--accent);
 }
 
-.reader-content a:hover {
+.reader-pages a:hover {
   color: var(--accent-hover);
   border-bottom-color: var(--accent-hover);
 }
