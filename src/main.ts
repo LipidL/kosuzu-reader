@@ -11,9 +11,13 @@ interface Book {
     added_date: string;
 }
 
-// Helpers 
-
-// Simple HTML escaping to prevent XSS in book titles/authors/tags
+/**
+ * Escape special HTML characters in a string to prevent XSS vulnerabilities 
+ * when rendering user-generated content such as book titles, authors, and tags in the UI. 
+ * This function replaces &, <, >, and " with their corresponding HTML entities.
+ * @param s string to be escaped
+ * @returns escaped string
+ */
 function escapeHtml(s: string): string {
     return s
         .replace(/&/g, "&amp;")
@@ -28,7 +32,11 @@ const COVER_PALETTE = [
     "#6a7fad", "#c49a3c",
 ];
 
-// Generate a consistent color for a book cover based on its title
+/**
+ * Generate a consistent color for a book cover based on its title 
+ * @param title The title of the book
+ * @returns A color from the COVER_PALETTE
+ */
 function coverColor(title: string): string {
     let hash = 0;
     for (let i = 0; i < title.length; i++) {
@@ -37,7 +45,11 @@ function coverColor(title: string): string {
     return COVER_PALETTE[Math.abs(hash) % COVER_PALETTE.length];
 }
 
-// Get initials from the book title
+/**
+ * Get initials for a book title
+ * @param title The title of the book
+ * @returns The initials of the book title
+ */
 function initials(title: string): string {
     return title
         .split(/\s+/)
@@ -46,9 +58,12 @@ function initials(title: string): string {
         .join("");
 }
 
-// Rendering
-
-// Render the list of books in the UI
+/**
+ * Render book list in the UI.
+ * If the list is empty, show empty state message.
+ * Otherwise, create a card for each book with its cover, title, author, tags, and added date.
+ * @param books The list of books to be rendered
+ */
 function renderBooks(books: Book[]): void {
     const grid = document.getElementById("book-grid")!;
     const empty = document.getElementById("empty-state")!;
@@ -90,20 +105,24 @@ function renderBooks(books: Book[]): void {
     });
 }
 
-// Get the list of books and render them
+/**
+ * Get the list of books from the backend and render them
+ */
 async function loadBooks(): Promise<void> {
     const books: Book[] = await invoke("get_books");
     renderBooks(books);
 }
 
-// Remove dialog
+/** The ID of the book pending for removal */
 let pendingRemoveId: string | null = null;
 
+// Cancel removal of a book
 document.getElementById("remove-cancel")!.addEventListener("click", () => {
     pendingRemoveId = null;
     document.getElementById("remove-overlay")!.classList.add("hidden");
 });
 
+// Confirm removal of a book, then refresh the book list
 document.getElementById("remove-confirm")!.addEventListener("click", async () => {
     if (pendingRemoveId) {
         await invoke("remove_book", { id: pendingRemoveId });
@@ -164,7 +183,7 @@ interface ChapterData {
 
 /** Per-reader-session chapter cache */
 const chapterCache = new Map<number, ChapterData>();
-// Increment to cancel in-flight preloads when navigating or closing
+/** Increment to cancel in-flight preloads when navigating or closing */
 let preloadGen = 0;
 
 const MIME_TYPES: Record<string, string> = {
@@ -177,7 +196,7 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /**
- * @description Replace image sources in the chapter content with data URIs from the resources map
+ * Replace image sources in the chapter content with data URIs from the resources map
  * @param contentDiv The container element of the chapter content where <img> tags are located
  * @param resources A mapping of epub:// URIs to base64-encoded image data, used to replace the src attributes of <img> tags in the chapter content
  */
@@ -194,8 +213,11 @@ function applyResourcesToImages(
     }
 }
 
-// Strip non-renderable EPUB head elements (<link>, <title>, <script>, <meta>)
-// that leak into chapter HTML and can cause phantom layout boxes.
+/**
+ * Strip non-renderable EPUB head elements
+ * @param html The HTML content of the chapter
+ * @returns The sanitized HTML content
+ */
 function sanitizeChapterHtml(html: string): string {
     const doc = new DOMParser().parseFromString(html, "text/html");
     doc.querySelectorAll("link, title, script, meta").forEach((el) => el.remove());
@@ -204,7 +226,7 @@ function sanitizeChapterHtml(html: string): string {
 
 
 /**
- * @description Calculate the dimensions available for rendering chapter content, accounting for padding.
+ * Calculate the dimensions available for rendering chapter content, accounting for padding.
  * @returns An object containing the width and height available for rendering chapter content
  */
 function getPageDims(): { width: number; height: number } {
@@ -213,7 +235,7 @@ function getPageDims(): { width: number; height: number } {
 }
 
 /**
- * @description Update the reader navigation UI (chapter/page info and prev/next button states) based on the current chapter and page indices
+ * Update the reader navigation UI (chapter/page info and prev/next button states) based on the current chapter and page indices
  * @param chapterIndex The index of the currently displayed chapter
  */
 function updateReaderNav(chapterIndex: number): void {
@@ -226,7 +248,7 @@ function updateReaderNav(chapterIndex: number): void {
 }
 
 /**
- * @description Render a specific chapter in the reader
+ * Render a specific chapter in the reader
  * @param chapterIndex The chapter number to be rendered
  * @param data The data of that chapter
  */
@@ -276,6 +298,10 @@ function renderChapter(chapterIndex: number, data: ChapterData): void {
     });
 }
 
+/**
+ * Change the current page by a specified direction.
+ * @param direction Direction to navigate: 1 for next page, -1 for previous page
+ */
 async function navigatePage(direction: 1 | -1): Promise<void> {
     const pagesDiv = document.getElementById("reader-pages")!;
     const { width: pageWidth } = getPageDims();
@@ -293,8 +319,10 @@ async function navigatePage(direction: 1 | -1): Promise<void> {
     }
 }
 
-// Kick off background preloading of all un-cached chapters, prioritising
-// neighbours of the current chapter.
+/**
+ * Kick off background preloading of all un-cached chapters, 
+ * prioritising neighbours of the current chapter.
+ */
 function startPreloading(): void {
     if (!currentBook) return;
     preloadGen++;
@@ -327,6 +355,10 @@ function startPreloading(): void {
 }
 
 // Open reader with a specific book
+/**
+ * Open reader with a specific book
+ * @param book The book to be opened in the reader
+ */
 async function openReader(book: Book): Promise<void> {
     console.log(`Opening book: ${book.title}, time: ${new Date().toISOString()}`);
     currentBook = book;
@@ -361,7 +393,11 @@ async function openReader(book: Book): Promise<void> {
     startPreloading();
 }
 
-// Load a specific chapter, using the cache when available
+/**
+ * Load a specific chapter, using the cache when available
+ * @param chapterIndex The index of the chapter to load
+ * @returns A promise that resolves when the chapter is loaded
+ */
 async function loadChapter(chapterIndex: number): Promise<void> {
     if (!currentBook) return;
 
