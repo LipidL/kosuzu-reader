@@ -7,7 +7,7 @@ export interface Book {
     tags: string[];
     added_date: string;
     current_chapter: number;
-    current_page: number;
+    char_offset: number;
 }
 
 export interface ChapterData {

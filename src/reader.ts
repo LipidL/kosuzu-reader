@@ -17,6 +17,10 @@ let currentPage = 0;
 let totalPages = 1;
 /** Whether we should jump to the last page of the next chapter when navigating backward */
 let pendingLastPage = false;
+/** Cached character offset (into the chapter's flat text) of the first character on the current page. */
+let currentCharOffset = 0;
+/** Character offset to restore when opening a book; -1 means use the explicit pageIndex instead. */
+let restoreCharOffset = -1;
 
 /** Per-reader-session chapter cache */
 const chapterCache = new Map<number, ChapterData>();
@@ -63,6 +67,73 @@ function sanitizeChapterHtml(html: string): string {
 function getPageDims(): { width: number; height: number } {
     const el = document.getElementById("reader-content")!;
     return { width: el.clientWidth, height: el.clientHeight };
+}
+
+/**
+ * Walk all text nodes in the rendered chapter and return the cumulative character
+ * offset of the first character that falls on the current page column.
+ *
+ * The formula `Math.floor((rect.left - pdivLeft) / pageWidth)` yields the absolute
+ * column index regardless of whatever CSS transform is currently applied to pagesDiv,
+ * because the transform terms cancel when subtracting pdivLeft from rect.left.
+ */
+function getCharOffsetOfCurrentPage(): number {
+    const pagesDiv = document.getElementById("reader-pages")!;
+    const { width: pageWidth } = getPageDims();
+    const pdivLeft = pagesDiv.getBoundingClientRect().left;
+    let offset = 0;
+    const walker = document.createTreeWalker(pagesDiv, NodeFilter.SHOW_TEXT);
+    let node: Node | null = walker.nextNode();
+    while (node !== null) {
+        const textNode = node as Text;
+        const len = textNode.textContent?.length ?? 0;
+        if (len > 0) {
+            const range = document.createRange();
+            range.setStart(textNode, 0);
+            range.setEnd(textNode, 1);
+            const col = Math.floor((range.getBoundingClientRect().left - pdivLeft) / pageWidth);
+            if (col >= currentPage) {
+                return offset;
+            }
+            offset += len;
+        }
+        node = walker.nextNode();
+    }
+    return 0;
+}
+
+/**
+ * Given a character offset into the chapter text, return the page index that
+ * contains that offset.  Works with any CSS transform applied to pagesDiv;
+ * must be called after the column layout has been fully computed (post double-RAF).
+ */
+function findPageForCharOffset(charOffset: number): number {
+    if (charOffset <= 0) return 0;
+    const pagesDiv = document.getElementById("reader-pages")!;
+    const { width: pageWidth } = getPageDims();
+    const pdivLeft = pagesDiv.getBoundingClientRect().left;
+    let remaining = charOffset;
+    const walker = document.createTreeWalker(pagesDiv, NodeFilter.SHOW_TEXT);
+    let node: Node | null = walker.nextNode();
+    while (node !== null) {
+        const textNode = node as Text;
+        const len = textNode.textContent?.length ?? 0;
+        if (len > 0) {
+            if (remaining < len) {
+                const range = document.createRange();
+                range.setStart(textNode, remaining);
+                range.setEnd(textNode, Math.min(remaining + 1, len));
+                const rect = range.getBoundingClientRect();
+                return Math.max(0, Math.min(
+                    Math.floor((rect.left - pdivLeft) / pageWidth),
+                    totalPages - 1,
+                ));
+            }
+            remaining -= len;
+        }
+        node = walker.nextNode();
+    }
+    return Math.max(0, totalPages - 1);
 }
 
 /**
@@ -113,11 +184,16 @@ function renderChapter(chapterIndex: number, pageIndex: number, data: ChapterDat
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
             totalPages = Math.max(1, Math.round(pagesDiv.scrollWidth / pageWidth));
-            console.log(`Chapter ${chapterIndex}: calculated totalPages = ${totalPages}, scrollWidth = ${pagesDiv.scrollWidth}, pageWidth = ${pageWidth}`);
             if (pendingLastPage) {
+                // If we were trying to go to the last page of the previous chapter 
                 currentPage = totalPages - 1;
                 pendingLastPage = false;
+            } else if (restoreCharOffset >= 0) {
+                // If we have a character offset to restore (from opening the book), find the page for that offset
+                currentPage = findPageForCharOffset(restoreCharOffset);
+                restoreCharOffset = -1;
             }
+            currentCharOffset = getCharOffsetOfCurrentPage();
             pagesDiv.style.transition = "none";
             pagesDiv.style.transform = `translateX(${-currentPage * pageWidth}px)`;
             requestAnimationFrame(() => { pagesDiv.style.transition = ""; });
@@ -196,7 +272,7 @@ async function saveProgress(): Promise<void> {
         await invoke("save_book_progress", {
             id: currentBook.id,
             chapter: currentChapter,
-            page: currentPage,
+            charOffset: currentCharOffset,
         });
     }
 }
@@ -214,6 +290,7 @@ export async function navigatePage(direction: 1 | -1): Promise<void> {
     const newPage = currentPage + direction;
     if (newPage >= 0 && newPage < totalPages) {
         currentPage = newPage;
+        currentCharOffset = getCharOffsetOfCurrentPage();
         pagesDiv.style.transform = `translateX(${-currentPage * pageWidth}px)`;
         updateReaderNav(currentChapter);
     } else if (direction > 0 && currentChapter < totalChapters - 1) {
@@ -235,7 +312,7 @@ export async function openReader(book: Book): Promise<void> {
     document.getElementById("main-content")!.classList.add("hidden");
 
     const startChapter = book.current_chapter || 0;
-    const startPage = book.current_page || 0;
+    restoreCharOffset = book.char_offset || 0;
 
     console.log(`Fetching initial chapter and chapter count for: ${book.title}, time: ${new Date().toISOString()}`);
     const [chapters, chapterData] = await Promise.all([
@@ -255,7 +332,7 @@ export async function openReader(book: Book): Promise<void> {
     document.getElementById("reader-title")!.textContent = book.title;
     console.log(`Displayed reader view for: ${book.title}, time: ${new Date().toISOString()}`);
 
-    renderChapter(startChapter, startPage, chapterData);
+    renderChapter(startChapter, 0, chapterData);
     console.log(`Rendered initial chapter for: ${book.title}, time: ${new Date().toISOString()}`);
 
     startPreloading();
@@ -271,6 +348,8 @@ document.getElementById("reader-back-btn")!.addEventListener("click", () => {
         currentBook = null;
         currentChapter = 0;
         currentPage = 0;
+        currentCharOffset = 0;
+        restoreCharOffset = -1;
         totalPages = 1;
         chapterCache.clear();
         preloadGen++;
@@ -324,7 +403,8 @@ window.addEventListener("resize", () => {
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
             totalPages = Math.max(1, Math.round(pagesDiv.scrollWidth / pageWidth));
-            currentPage = Math.min(currentPage, totalPages - 1);
+            currentPage = findPageForCharOffset(currentCharOffset);
+            console.log(`Resize: calculated totalPages = ${totalPages}, scrollWidth = ${pagesDiv.scrollWidth}, pageWidth = ${pageWidth}, currentPage = ${currentPage}, currentCharOffset = ${currentCharOffset}`);
             pagesDiv.style.transition = "none";
             pagesDiv.style.transform = `translateX(${-currentPage * pageWidth}px)`;
             requestAnimationFrame(() => { pagesDiv.style.transition = ""; });

@@ -102,7 +102,7 @@ pub struct Book {
     pub tags: Vec<String>,
     pub added_date: String,
     pub current_chapter: usize,
-    pub current_page: usize,
+    pub char_offset: usize,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -228,7 +228,7 @@ pub fn add_epub_files(app: AppHandle, paths: Vec<String>) -> Result<Vec<Book>, S
             tags: Vec::new(),
             added_date: chrono::Local::now().format("%Y-%m-%d").to_string(),
             current_chapter: 0,
-            current_page: 0,
+            char_offset: 0,
         };
         added.push(book.clone());
         lib.books.push(book);
@@ -257,12 +257,12 @@ pub fn save_book_progress(
     app: AppHandle,
     id: String,
     chapter: usize,
-    page: usize,
+    char_offset: usize,
 ) -> Result<(), String> {
     let mut lib = load_library(&app);
     if let Some(book) = lib.books.iter_mut().find(|b| b.id == id) {
         book.current_chapter = chapter;
-        book.current_page = page;
+        book.char_offset = char_offset;
         save_library(&app, &lib)
     } else {
         Err(format!("Book with id {} not found", id))
