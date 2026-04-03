@@ -213,6 +213,13 @@ function applyResourcesToImages(
             img.src = `data:${MIME_TYPES[ext] ?? "image/png"};base64,${resources[src]}`;
         }
     }
+    for (const img of contentDiv.querySelectorAll<SVGImageElement>("image")) {
+        const src = img.href.baseVal;
+        if (src && resources[src] && !src.startsWith("data:") && !src.startsWith("http")) {
+            const ext = src.split(".").pop()?.toLowerCase() ?? "png";
+            img.href.baseVal = `data:${MIME_TYPES[ext] ?? "image/png"};base64,${resources[src]}`;
+        }
+    }
 }
 
 /**
