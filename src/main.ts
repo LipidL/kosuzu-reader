@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 
 interface Book {
@@ -367,7 +368,6 @@ function startPreloading(): void {
     })();
 }
 
-// Open reader with a specific book
 /**
  * Open reader with a specific book
  * @param book The book to be opened in the reader
@@ -435,24 +435,34 @@ async function loadChapter(chapterIndex: number): Promise<void> {
     }
 }
 
-// Reader controls
-document.getElementById("reader-back-btn")!.addEventListener("click", () => {
-    // Save reading progress before closing
+/**
+ * Save the current reading progress of the open book to the backend, so it can be restored in future sessions.
+ */
+async function saveProgress() {
     if (currentBook) {
-        invoke("save_book_progress", {
+        await invoke("save_book_progress", {
             id: currentBook.id,
             chapter: currentChapter,
             page: currentPage,
         })
     }
-    document.getElementById("reader-view")!.classList.add("hidden");
-    document.getElementById("main-content")!.classList.remove("hidden");
-    currentBook = null;
-    currentChapter = 0;
-    currentPage = 0;
-    totalPages = 1;
-    chapterCache.clear();
-    preloadGen++; // cancel any in-flight preloads
+}
+
+// Reader controls
+
+// When closing the reader, save progress and reset reader state
+document.getElementById("reader-back-btn")!.addEventListener("click", () => {
+    // Save reading progress before closing
+    saveProgress().then(() => {
+        document.getElementById("reader-view")!.classList.add("hidden");
+        document.getElementById("main-content")!.classList.remove("hidden");
+        currentBook = null;
+        currentChapter = 0;
+        currentPage = 0;
+        totalPages = 1;
+        chapterCache.clear();
+        preloadGen++; // cancel any in-flight preloads        
+    })
 });
 
 document.getElementById("reader-prev-btn")!.addEventListener("click", () => navigatePage(-1));
@@ -514,6 +524,15 @@ window.addEventListener("resize", () => {
         if (Math.abs(dx) > 50) navigatePage(dx < 0 ? 1 : -1);
     }, { passive: true });
 }
+
+// Save progress and close when the window is closed while a book is open
+getCurrentWindow().onCloseRequested(async (event) => {
+    if (currentBook) {
+        event.preventDefault();
+        await saveProgress();
+    }
+    await getCurrentWindow().destroy();
+});
 
 // Initialize app
 loadBooks();
