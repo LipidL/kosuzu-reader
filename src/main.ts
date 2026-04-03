@@ -9,6 +9,8 @@ interface Book {
     description: string;
     tags: string[];
     added_date: string;
+    current_chapter: number;
+    current_page: number;
 }
 
 /**
@@ -235,7 +237,8 @@ function getPageDims(): { width: number; height: number } {
 }
 
 /**
- * Update the reader navigation UI (chapter/page info and prev/next button states) based on the current chapter and page indices
+ * Update the reader navigation UI (chapter/page info and prev/next button states) based on the current chapter and page indices.
+ * The currentPage variable is set previously.
  * @param chapterIndex The index of the currently displayed chapter
  */
 function updateReaderNav(chapterIndex: number): void {
@@ -252,7 +255,7 @@ function updateReaderNav(chapterIndex: number): void {
  * @param chapterIndex The chapter number to be rendered
  * @param data The data of that chapter
  */
-function renderChapter(chapterIndex: number, data: ChapterData): void {
+function renderChapter(chapterIndex: number, pageIndex: number, data: ChapterData): void {
     const pagesDiv = document.getElementById("reader-pages")!;
     const { width: pageWidth, height: pageHeight } = getPageDims();
 
@@ -278,7 +281,7 @@ function renderChapter(chapterIndex: number, data: ChapterData): void {
     pagesDiv.style.setProperty("--page-img-max-h", Math.max(Math.floor(availH - imgMarginV), 64) + "px");
 
     currentChapter = chapterIndex;
-    currentPage = 0;
+    currentPage = pageIndex;
 
     // Double RAF: first pass lets the browser lay out columns,
     // second pass ensures scrollWidth is accurate before we read it.
@@ -308,12 +311,15 @@ async function navigatePage(direction: 1 | -1): Promise<void> {
 
     const newPage = currentPage + direction;
     if (newPage >= 0 && newPage < totalPages) {
+        // The new page is within the current chapter, just navigate there
         currentPage = newPage;
         pagesDiv.style.transform = `translateX(${-currentPage * pageWidth}px)`;
         updateReaderNav(currentChapter);
     } else if (direction > 0 && currentChapter < totalChapters - 1) {
+        // Navigating forward from the last page of the current chapter, load the next chapter and jump to its first page
         await loadChapter(currentChapter + 1);
     } else if (direction < 0 && currentChapter > 0) {
+        // Navigating backward from the first page of the current chapter, load the previous chapter and jump to its last page
         pendingLastPage = true;
         await loadChapter(currentChapter - 1);
     }
@@ -362,14 +368,14 @@ function startPreloading(): void {
 async function openReader(book: Book): Promise<void> {
     console.log(`Opening book: ${book.title}, time: ${new Date().toISOString()}`);
     currentBook = book;
-    currentChapter = 0; // TODO: restore saved progress
     chapterCache.clear();
     preloadGen++;
     document.getElementById("main-content")!.classList.add("hidden");
 
     // Fetch chapter count and first-chapter content+resources in parallel
     console.log(`Fetching initial chapter and chapter count for: ${book.title}, time: ${new Date().toISOString()}`);
-    const startChapter = 0;
+    const startChapter = book.current_chapter || 0;
+    const startPage = book.current_page || 0;
     const [chapters, chapterData] = await Promise.all([
         invoke<number>("get_epub_chapters", { path: book.path }),
         invoke<ChapterData>("get_chapter_with_resources", {
@@ -386,7 +392,7 @@ async function openReader(book: Book): Promise<void> {
     document.getElementById("reader-title")!.textContent = book.title;
     console.log(`Displayed reader view for: ${book.title}, time: ${new Date().toISOString()}`);
 
-    renderChapter(startChapter, chapterData);
+    renderChapter(startChapter, startPage, chapterData);
     console.log(`Rendered initial chapter for: ${book.title}, time: ${new Date().toISOString()}`);
 
     // Kick off background preloading for all remaining chapters
@@ -402,7 +408,7 @@ async function loadChapter(chapterIndex: number): Promise<void> {
     if (!currentBook) return;
 
     if (chapterCache.has(chapterIndex)) {
-        renderChapter(chapterIndex, chapterCache.get(chapterIndex)!);
+        renderChapter(chapterIndex, 0, chapterCache.get(chapterIndex)!);
         startPreloading();
         return;
     }
@@ -413,7 +419,7 @@ async function loadChapter(chapterIndex: number): Promise<void> {
             chapter: chapterIndex,
         });
         chapterCache.set(chapterIndex, data);
-        renderChapter(chapterIndex, data);
+        renderChapter(chapterIndex, 0, data);
         startPreloading();
     } catch (e) {
         console.error("Failed to load chapter:", e);
@@ -424,6 +430,14 @@ async function loadChapter(chapterIndex: number): Promise<void> {
 
 // Reader controls
 document.getElementById("reader-back-btn")!.addEventListener("click", () => {
+    // Save reading progress before closing
+    if (currentBook) {
+        invoke("save_book_progress", {
+            id: currentBook.id,
+            chapter: currentChapter,
+            page: currentPage,
+        })
+    }
     document.getElementById("reader-view")!.classList.add("hidden");
     document.getElementById("main-content")!.classList.remove("hidden");
     currentBook = null;

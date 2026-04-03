@@ -12,6 +12,8 @@ pub struct Book {
     pub description: String,
     pub tags: Vec<String>,
     pub added_date: String,
+    pub current_chapter: usize,
+    pub current_page: usize,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -23,7 +25,7 @@ struct Library {
 fn library_path(app: &AppHandle) -> std::path::PathBuf {
     let dir = app.path().app_data_dir().expect("app data dir unavailable");
     fs::create_dir_all(&dir).ok();
-    dir.join("library.json")
+    dir.join("library.toml")
 }
 
 /// Load the library from data directory, or return an empty library if the file doesn't exist or is invalid.
@@ -31,7 +33,7 @@ fn load_library(app: &AppHandle) -> Library {
     let p = library_path(app);
     if p.exists() {
         let txt = fs::read_to_string(&p).unwrap_or_default();
-        serde_json::from_str(&txt).unwrap_or_default()
+        toml::from_str(&txt).unwrap_or_default()
     } else {
         Library::default()
     }
@@ -39,7 +41,7 @@ fn load_library(app: &AppHandle) -> Library {
 
 /// Save the library to the data directory, overwriting any existing file.
 fn save_library(app: &AppHandle, lib: &Library) -> Result<(), String> {
-    let content = serde_json::to_string_pretty(lib).map_err(|e| e.to_string())?;
+    let content = toml::to_string_pretty(lib).map_err(|e| e.to_string())?;
     fs::write(library_path(app), content).map_err(|e| e.to_string())
 }
 
@@ -220,6 +222,8 @@ fn add_epub_files(app: AppHandle, paths: Vec<String>) -> Result<Vec<Book>, Strin
             description,
             tags: Vec::new(),
             added_date: chrono::Local::now().format("%Y-%m-%d").to_string(),
+            current_chapter: 0,
+            current_page: 0,
         };
         added.push(book.clone());
         lib.books.push(book);
@@ -236,6 +240,18 @@ fn remove_book(app: AppHandle, id: String) -> Result<(), String> {
     save_library(&app, &lib)
 }
 
+#[tauri::command]
+fn save_book_progress(app: AppHandle, id: String, chapter: usize, page: usize) -> Result<(), String> {
+    let mut lib = load_library(&app);
+    if let Some(book) = lib.books.iter_mut().find(|b| b.id == id) {
+        book.current_chapter = chapter;
+        book.current_page = page;
+        save_library(&app, &lib)
+    } else {
+        Err(format!("Book with id {} not found", id))
+    }
+}
+
 /// Main entry point of application
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -250,6 +266,7 @@ pub fn run() {
             get_epub_resource,
             get_epub_chapters,
             get_chapter_with_resources,
+            save_book_progress,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
