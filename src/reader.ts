@@ -292,6 +292,16 @@ document.addEventListener("keydown", (e) => {
     }
 });
 
+// Scroll page navigation (except on macOS where it interferes with natural scroll)
+document.addEventListener("wheel", (e) => {
+    if (!currentBook) return;
+    if (navigator.platform.includes("Mac") || e.ctrlKey) return;
+    if (Math.abs(e.deltaY) > 30) {
+        e.preventDefault();
+        navigatePage(e.deltaY > 0 ? 1 : -1);
+    }
+})
+
 // Recalculate pages on resize
 window.addEventListener("resize", () => {
     if (!currentBook) return;
