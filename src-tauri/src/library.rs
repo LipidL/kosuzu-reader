@@ -2,6 +2,96 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 use tauri::{AppHandle, Manager};
 
+/// On Android, copy a file from a `content://` URI (or a plain file path) into
+/// `dest` using the Android ContentResolver via JNI.  Falls back to a plain
+/// `fs::copy` when the path is not a content URI.
+#[cfg(target_os = "android")]
+fn copy_to_app_storage(uri_str: &str, dest: &std::path::Path) -> Result<(), String> {
+    use std::io::Write;
+
+    // Plain file path — normal copy is sufficient.
+    if !uri_str.starts_with("content://") {
+        fs::copy(uri_str, dest).map_err(|e| format!("Failed to copy file: {e}"))?;
+        return Ok(());
+    }
+
+    // content:// URI — must use Android's ContentResolver.
+    use jni::objects::{JByteArray, JObject, JValue};
+
+    // SAFETY: Tauri initialises the Android JVM before any commands run;
+    //         the pointers stored in ndk_context are therefore valid.
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|e| format!("JVM unavailable: {e}"))?;
+    let mut env = vm
+        .attach_current_thread_as_daemon()
+        .map_err(|e| format!("Cannot attach thread: {e}"))?;
+
+    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+    let resolver: JObject = env
+        .call_method(
+            &activity,
+            "getContentResolver",
+            "()Landroid/content/ContentResolver;",
+            &[],
+        )
+        .and_then(|v| v.l())
+        .map_err(|e| format!("getContentResolver failed: {e}"))?;
+
+    let j_uri_str = env
+        .new_string(uri_str)
+        .map_err(|e| format!("Failed to create Java string: {e}"))?;
+    let uri_obj: JObject = env
+        .call_static_method(
+            "android/net/Uri",
+            "parse",
+            "(Ljava/lang/String;)Landroid/net/Uri;",
+            &[JValue::Object(&j_uri_str)],
+        )
+        .and_then(|v| v.l())
+        .map_err(|e| format!("Uri.parse failed: {e}"))?;
+
+    let stream: JObject = env
+        .call_method(
+            &resolver,
+            "openInputStream",
+            "(Landroid/net/Uri;)Ljava/io/InputStream;",
+            &[JValue::Object(&uri_obj)],
+        )
+        .and_then(|v| v.l())
+        .map_err(|e| format!("openInputStream failed: {e}"))?;
+
+    if stream.is_null() {
+        return Err(format!("Cannot open content URI: {uri_str}"));
+    }
+
+    let jbuf: JByteArray = env
+        .new_byte_array(8192)
+        .map_err(|e| format!("Failed to allocate JNI buffer: {e}"))?;
+
+    let mut file =
+        std::fs::File::create(dest).map_err(|e| format!("Failed to create dest file: {e}"))?;
+
+    loop {
+        let n = env
+            .call_method(&stream, "read", "([B)I", &[JValue::Object(&*jbuf)])
+            .and_then(|v| v.i())
+            .map_err(|e| format!("InputStream.read failed: {e}"))?;
+        if n <= 0 {
+            break;
+        }
+        let chunk = env
+            .convert_byte_array(&jbuf)
+            .map_err(|e| format!("convert_byte_array failed: {e}"))?;
+        file.write_all(&chunk[..n as usize])
+            .map_err(|e| format!("write_all failed: {e}"))?;
+    }
+
+    let _ = env.call_method(&stream, "close", "()V", &[]);
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Book {
     pub id: String,
@@ -107,13 +197,31 @@ pub fn add_epub_files(app: AppHandle, paths: Vec<String>) -> Result<Vec<Book>, S
     let mut added: Vec<Book> = Vec::new();
 
     for path in paths {
-        if lib.books.iter().any(|b| b.path == path) {
+        let id = uuid::Uuid::new_v4().to_string();
+
+        // On Android, copy the file (possibly a content:// URI) into the app's
+        // private data directory, named by the book ID so it is always reachable.
+        #[cfg(target_os = "android")]
+        let stored_path = {
+            let dir = app.path().app_data_dir().expect("app data dir unavailable");
+            let dest = dir.join(format!("{id}.epub"));
+            copy_to_app_storage(&path, &dest)?;
+            dest.to_string_lossy().into_owned()
+        };
+
+        #[cfg(not(target_os = "android"))]
+        let stored_path = path.clone();
+
+        // On desktop deduplicate by stored path; on Android every copy is unique.
+        #[cfg(not(target_os = "android"))]
+        if lib.books.iter().any(|b| b.path == stored_path) {
             continue;
         }
-        let (title, author, description) = parse_epub_meta(&path);
+
+        let (title, author, description) = parse_epub_meta(&stored_path);
         let book = Book {
-            id: uuid::Uuid::new_v4().to_string(),
-            path,
+            id,
+            path: stored_path,
             title,
             author,
             description,
@@ -133,12 +241,24 @@ pub fn add_epub_files(app: AppHandle, paths: Vec<String>) -> Result<Vec<Book>, S
 #[tauri::command]
 pub fn remove_book(app: AppHandle, id: String) -> Result<(), String> {
     let mut lib = load_library(&app);
+
+    // On Android the epub was copied into app storage; clean it up now.
+    #[cfg(target_os = "android")]
+    if let Some(book) = lib.books.iter().find(|b| b.id == id) {
+        let _ = fs::remove_file(&book.path);
+    }
+
     lib.books.retain(|b| b.id != id);
     save_library(&app, &lib)
 }
 
 #[tauri::command]
-pub fn save_book_progress(app: AppHandle, id: String, chapter: usize, page: usize) -> Result<(), String> {
+pub fn save_book_progress(
+    app: AppHandle,
+    id: String,
+    chapter: usize,
+    page: usize,
+) -> Result<(), String> {
     let mut lib = load_library(&app);
     if let Some(book) = lib.books.iter_mut().find(|b| b.id == id) {
         book.current_chapter = chapter;

@@ -1953,6 +1953,8 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "epub",
+ "jni",
+ "ndk-context",
  "serde",
  "tauri",
  "tauri-build",
