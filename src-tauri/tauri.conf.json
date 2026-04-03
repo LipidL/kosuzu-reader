@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "novel-reader",
+  "productName": "kosuzu-reader",
   "version": "0.1.0",
-  "identifier": "com.novel-reader.app",
+  "identifier": "com.kosuzu-reader.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Novel Reader",
+        "title": "Kosuzu Reader",
         "width": 1200,
         "height": 800,
         "minWidth": 400,

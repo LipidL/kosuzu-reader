@@ -1,4 +1,4 @@
-package com.novel_reader.app
+package com.kosuzu_reader.app
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
