@@ -1,7 +1,5 @@
-use serde::{Serialize, Deserialize};
-use base64::{Engine, engine::general_purpose::STANDARD};
-
-
+use base64::{engine::general_purpose::STANDARD, Engine};
+use serde::{Deserialize, Serialize};
 
 /// Holds the HTML content of a chapter together with all embedded resources
 /// (images, etc.) encoded as base64 strings, keyed by their epub:// URI.
@@ -18,7 +16,7 @@ fn extract_epub_uris(content: &str) -> Vec<String> {
     while let Some(pos) = rest.find("epub://") {
         let slice = &rest[pos..];
         let end = slice
-            .find(|c: char| c == '"' || c == '\'' || c == ' ' || c == '\n' || c == '\t' || c == '>')
+            .find(|c: char| ['"', '\'', ' ', '\n', '\t', '>'].contains(&c))
             .unwrap_or(slice.len());
         let uri = &slice[..end];
         if !uris.iter().any(|u| u == uri) {

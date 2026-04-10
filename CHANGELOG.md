@@ -1,6 +1,6 @@
 # Changelog
 
-## v?.?.? - ?-?-?
+## v0.1.0 - 2026-4-10
 
 ### Currently implemented functionalities
 
