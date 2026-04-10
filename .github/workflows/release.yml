@@ -75,8 +75,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
-          cache: 'npm'
+          node-version: "lts/*"
+          cache: "npm"
 
       # npm ci gives a reproducible install from package-lock.json.
       # This also installs @tauri-apps/cli (listed in devDependencies),
@@ -149,8 +149,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
-          cache: 'npm'
+          node-version: "lts/*"
+          cache: "npm"
 
       - name: Install frontend and Tauri CLI
         run: npm ci
@@ -159,8 +159,8 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: "temurin"
+          java-version: "17"
 
       # Sets ANDROID_HOME / ANDROID_SDK_ROOT environment variables.
       - name: Setup Android SDK
@@ -217,8 +217,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
-          cache: 'npm'
+          node-version: "lts/*"
+          cache: "npm"
 
       - name: Install frontend and Tauri CLI
         run: npm ci
@@ -371,39 +371,3 @@ jobs:
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
-```
-
-Here's a summary of every significant change and the reasoning behind each decision:
-
----
-
-### Tauri v2 build system
-- **`npx tauri build` instead of `cargo build`** — since `@tauri-apps/cli` is already in `devDependencies`, running `npm ci` installs it for free. This saves 5–10 minutes compared to `cargo install tauri-cli --locked`.
-- **`--ci` flag** — suppresses interactive prompts that would hang the runner.
-- **`--bundles` flag** — selects only the relevant bundle formats per platform instead of building all of them.
-- **`working-directory: src-tauri`** for tests — the `Cargo.toml` lives there, not at the repo root.
-- **`workspaces: src-tauri -> target`** for `rust-cache` — tells the cache action where to find the Cargo workspace and its target directory.
-
-### Desktop target changes
-| Change | Reason |
-|---|---|
-| `x86_64-unknown-linux-musl` → `gnu` | Tauri requires GTK/WebKit2GTK shared libraries; musl is incompatible |
-| Added `aarch64-unknown-linux-gnu` on `ubuntu-24.04-arm` | Native ARM64 Linux runner avoids complex cross-compilation |
-| Added `aarch64-pc-windows-msvc` on `windows-latest` | ARM64 Windows support via cross-compilation |
-| `macos-latest` → `macos-13` for x86_64 | `macos-latest` now points to macOS 15 (ARM64); `macos-13` is the last Intel runner |
-| `run_tests: false` for `aarch64-pc-windows-msvc` | Cross-compiled ARM64 binaries cannot execute on the x86_64 CI host |
-| Linux deps updated to `libwebkit2gtk-4.1-dev` | Tauri v2 targets WebKit2GTK 4.1, not 4.0 |
-
-### Android (`build-android`)
-- **Java 17** via `actions/setup-java` — required by the Android Gradle plugin.
-- **NDK 27** — minimum supported by Tauri v2 (NDK 26+ required).
-- **All four ABI targets** (`aarch64`, `armv7`, `x86_64`, `i686`) — needed for a true universal APK.
-- **`NDK_HOME`** mapped from `ANDROID_NDK_ROOT` — Tauri's Android build system looks for `NDK_HOME`.
-- **Skips `tauri android init`** — `gen/android/` is already committed to the repo.
-- Artifact path: `src-tauri/gen/android/app/build/outputs/apk/**/*.apk`
-
-### iOS (`build-ios`)
-- **`npx tauri ios init`** — scaffolds `gen/apple/` (not yet committed to the repo).
-- **Three Rust targets** — physical device (`aarch64-apple-ios`), Apple Silicon simulator (`aarch64-apple-ios-sim`), Intel simulator (`x86_64-apple-ios`).
-- **Optional code signing** — the `Import Apple signing certificate` step is conditioned on `IOS_CERTIFICATE != ''`. Without the secret, it is skipped gracefully and `CODE_SIGNING_ALLOWED=NO` is passed to `xcodebuild` so the build still validates compilation. Clear comments explain exactly which secrets to add for App Store / TestFlight distribution.
-- Captures both `.ipa` (signed) and `.xcarchive` (unsigned) as artifacts.
