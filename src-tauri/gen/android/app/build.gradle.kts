@@ -13,6 +13,16 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// key.properties is gitignored – never commit it.
+// • Locally:  create src-tauri/gen/android/key.properties manually (see README).
+// • In CI:    generated automatically by .github/workflows/release.yml from secrets.
+val keyProperties = Properties().apply {
+    val keyPropsFile = rootProject.file("key.properties")
+    if (keyPropsFile.exists()) {
+        keyPropsFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 36
     namespace = "com.kosuzu_reader.app"
@@ -23,6 +33,17 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        create("release") {
+            val storeFilePath = keyProperties.getProperty("storeFile")
+            if (!storeFilePath.isNullOrBlank()) {
+                storeFile      = file(storeFilePath)
+                storePassword  = keyProperties.getProperty("storePassword") ?: ""
+                keyAlias       = keyProperties.getProperty("keyAlias")      ?: ""
+                keyPassword    = keyProperties.getProperty("keyPassword")   ?: ""
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -37,6 +58,7 @@ android {
             }
         }
         getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }

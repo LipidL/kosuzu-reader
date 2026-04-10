@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+# All jobs that touch releases need write access to repository contents
+permissions:
+  contents: write
+
+jobs:
+  # 0. Extract release notes and open a draft release
+  prepare:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create_release.outputs.release_id }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate release notes from CHANGELOG
+        run: |
+          chmod +x scripts/generate_release_notes.sh
+          scripts/generate_release_notes.sh "$GITHUB_REF_NAME"
+
+      - name: Create draft release
+        id: create_release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('release_notes.md', 'utf8');
+            const tag = context.ref.replace('refs/tags/', '');
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              tag_name:   tag,
+              name:       tag,
+              body:       body,
+              draft:      true,
+              prerelease: false,
+            });
+            core.setOutput('release_id', release.data.id.toString());
+
+  # 1a. Build desktop apps and upload artifacts to the draft
+  build-desktop:
+    name: Desktop – ${{ matrix.name }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - name: Linux x86_64
+            runner: ubuntu-22.04
+            rust-targets: x86_64-unknown-linux-gnu
+            args: --target x86_64-unknown-linux-gnu
+
+          # Windows x86_64
+          - name: Windows x86_64
+            runner: windows-latest
+            rust-targets: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc
+
+          # macOS Universal (Intel + Apple Silicon fat binary)
+          - name: macOS Universal
+            runner: macos-latest
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # tauri-apps/tauri-action builds the app and uploads all platform
+      # bundles (deb, rpm, AppImage, msi, nsis, dmg, …) to the draft release.
+      - name: Build and upload with Tauri Action
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          args: ${{ matrix.args }}
+
+  #1b. Build the Android APK + AAB and upload to the draft
+  build-android:
+    name: Android (APK + AAB)
+    needs: prepare
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # Add all four Android ABI targets so Tauri can cross-compile
+      - name: Add Android Rust targets
+        run: |
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            i686-linux-android \
+            x86_64-linux-android
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      # Java / Android toolchain
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+
+      # NDK r27c – update the version string if a newer LTS is available:
+      #   sdkmanager --list | grep "ndk;"
+      - name: Install Android NDK r27c
+        run: sdkmanager "ndk;27.2.12479018"
+
+      - name: Export NDK_HOME
+        run: echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Build a universal release APK and an AAB (for Play Store submission).
+      - name: Build Android release (APK + AAB)
+        run: npx tauri android build --apk --aab
+
+      # Upload every .apk and .aab produced under the build outputs tree
+      - name: Upload Android artifacts to draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          find src-tauri/gen/android/app/build/outputs \
+               \( -name "*.apk" -o -name "*.aab" \) \
+               -not -path "*/intermediates/*" \
+               -print0 \
+          | xargs -0 -I{} \
+              gh release upload "$GITHUB_REF_NAME" {} --clobber
+
+  # 2. Publish the draft release once all builds succeed
+  publish:
+    name: Publish release
+    needs: [prepare, build-desktop, build-android]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish draft release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner:      context.repo.owner,
+              repo:       context.repo.repo,
+              release_id: ${{ needs.prepare.outputs.release_id }},
+              draft:      false,
+            });
