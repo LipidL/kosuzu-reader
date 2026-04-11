@@ -116,8 +116,8 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/release.keystore
-            cat > src-tauri/gen/android/key.properties <<EOF
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/app/release.keystore
+            cat > src-tauri/gen/android/app/key.properties <<EOF
           storeFile=release.keystore
           storePassword=$ANDROID_KEYSTORE_PASSWORD
           keyAlias=$ANDROID_KEY_ALIAS
@@ -129,11 +129,11 @@ jobs:
             echo "Configure the following secrets for production releases:"
             echo "  ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD"
             keytool -genkey -v \
-              -keystore src-tauri/gen/android/release.keystore \
+              -keystore src-tauri/gen/android/app/release.keystore \
               -alias debug -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass android -keypass android \
               -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, ST=Debug, C=US"
-            cat > src-tauri/gen/android/key.properties <<EOF
+            cat > src-tauri/gen/android/app/key.properties <<EOF
           storeFile=release.keystore
           storePassword=android
           keyAlias=debug
