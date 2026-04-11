@@ -62,6 +62,13 @@ jobs:
   build-android:
     name: Build Android APK
     runs-on: windows-latest
+    env:
+      # Cargo registry must live on the same drive as the checkout (D:).
+      # Kotlin incremental compilation computes relative paths between the
+      # Tauri crate Android sources (in the registry) and the project.
+      # Cross-drive relative paths are impossible on Windows, which causes
+      # "this and base files have different roots" errors.
+      CARGO_HOME: D:\cargo
 
     steps:
       - uses: actions/checkout@v4
@@ -116,11 +123,22 @@ jobs:
           keyAlias=$ANDROID_KEY_ALIAS
           keyPassword=$ANDROID_KEY_PASSWORD
           EOF
-            echo "Signing configuration written"
+            echo "Release signing configuration written"
           else
-            echo "WARNING: No signing secrets found. APK will not be signed for release."
-            echo "Configure the following secrets for signed builds:"
+            echo "WARNING: No signing secrets found. Generating debug keystore."
+            echo "Configure the following secrets for production releases:"
             echo "  ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD"
+            keytool -genkey -v \
+              -keystore src-tauri/gen/android/release.keystore \
+              -alias debug -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, ST=Debug, C=US"
+            cat > src-tauri/gen/android/key.properties <<EOF
+          storeFile=release.keystore
+          storePassword=android
+          keyAlias=debug
+          keyPassword=android
+          EOF
           fi
 
       - name: Build Tauri Android APK
