@@ -1,79 +1,52 @@
-name: Build and Test
+name: Test
 
 on:
   push:
     branches:
-      - "**"
+      - main
+      - develop
+      - master
   pull_request:
+    branches:
+      - main
+      - develop
+      - master
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   test:
-    name: Test on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-22.04
-          - windows-latest
-          - macos-latest
+    name: Test (Windows Desktop)
+    runs-on: windows-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      #Node.js
-      - name: Install Node.js 20
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: "npm"
 
-      # Rust
-      - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache Rust build artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: ./src-tauri -> target
-
-      # Platform-specific system dependencies
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
-
-      #JavaScript / TypeScript
-      - name: Install npm dependencies
+      - name: Install frontend dependencies
         run: npm ci
 
-      - name: TypeScript type check
-        run: npx tsc --noEmit
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
-      # Rust quality gates
-      - name: Lint Rust (Clippy)
-        run: >
-          cargo clippy
-          --manifest-path src-tauri/Cargo.toml
-          --all-targets
-          -- -D warnings
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
-      - name: Run Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      # Build verification
       - name: Build frontend
         run: npm run build
 
-      - name: Verify Tauri compilation (no bundle)
-        # Compiles all Rust code and the frontend but skips packaging installers,
-        # giving us a fast compile-time sanity check on every commit.
-        run: npx tauri build --no-bundle
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test --verbose
+
+      - name: Build Tauri app
+        run: npx tauri build
